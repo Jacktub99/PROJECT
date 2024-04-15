@@ -1,0 +1,103 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="it">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Market Data</title>
+    <style>
+        * {
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+        }
+    </style>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/css/bootstrap.min.css"
+        integrity="sha384-xOolHFLEh07PJGoPkLv1IbcEPTNtaed2xpHsD9ESMhqIYd0nLMwNLD69Npy4HI+N" crossorigin="anonymous">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+    <script src="https://cdn.jsdelivr.net/npm/luxon@3.4.4"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1"></script>
+    <script src="{% static 'chartjs-chart-financial.js' %}"></script>
+</head>
+
+<body>
+    <div id="navbar" class="bg-primary d-flex justify-content-center flex-row p-2">
+        <a role="button" class="btn btn-primary p-2" href="/">Home</a>
+        {% if request.user.is_authenticated %}
+        <a role="button" class="btn btn-primary p-2" href="/favourite">Preferiti</a>
+        {% else %}
+        <a role="button" class="btn btn-primary p-2" href="/signup">Signup/Login</a>
+        {% endif %}
+    </div>
+    <div class="container mx-auto p-4">
+        <div>
+            <!-- 
+                Se la richiesta viene dalla pagina dei preferiti vuol dire che ho già dei dati con cui riempire
+                gli input per poi mostrare già il grafico, quindi nel caso riempio l'attributo 'value' di ogni input,
+                se 'data' non viene passato al template il campo 'value' sarà vuoto
+            -->
+            <input placeholder="Simbolo" id="input-simbolo" type="text" value="{{ data.azione }}" required>
+            <!-- 
+                Quando l'utente cambia il valore di una delle due date, viene triggerato l'evento
+                'onchange' che nel nostro caso chiama una funzione per aggiustare il valore massimo o minimo
+                delle date che può assumere l'altro campo data
+            -->
+            <input type="date" id="min-date" placeholder="Data di Inizio" onchange="cambioMax()"
+                value="{{ data.data_inizio }}" required>
+            <input type="date" id="max-date" placeholder="Data di Fine" onchange="cambioMin()"
+                value="{{ data.data_fine }}" required>
+            <button id="add-symbol-button" onclick="add()" type="button" class="btn btn-primary">ADD</button>
+            <!-- Mostro il pulsante per aggiungere ai preferiti solo se l'utente è autenticato -->
+            {% if request.user.is_authenticated %}
+            <button class="btn btn-warning" onclick="addFavourite()" type="button">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+                    <path
+                        d="m12.672.668 3.059 6.197 6.838.993a.75.75 0 0 1 .416 1.28l-4.948 4.823 1.168 6.812a.75.75 0 0 1-1.088.79L12 18.347l-6.116 3.216a.75.75 0 0 1-1.088-.791l1.168-6.811-4.948-4.823a.749.749 0 0 1 .416-1.279l6.838-.994L11.327.668a.75.75 0 0 1 1.345 0Z">
+                    </path>
+                </svg>
+            </button>
+            {% else %}
+            <!-- Altrimenti mostro solo un pulsante disabilitato -->
+            <button class="btn btn-warning" disabled>
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+                    <path
+                        d="m12.672.668 3.059 6.197 6.838.993a.75.75 0 0 1 .416 1.28l-4.948 4.823 1.168 6.812a.75.75 0 0 1-1.088.79L12 18.347l-6.116 3.216a.75.75 0 0 1-1.088-.791l1.168-6.811-4.948-4.823a.749.749 0 0 1 .416-1.279l6.838-.994L11.327.668a.75.75 0 0 1 1.345 0Z">
+                    </path>
+                </svg>
+            </button>
+            {% endif %}
+        </div>
+
+        <!--
+            Alert Bootstrap per mostrare i messaggi di successo/errore delle richieste,
+            quando si clicca sul pulsante 'close', si rimuove dalla lista delle classi
+            dell'alert la classe 'show', in questo modo Bootstrap in automatico renderà
+            l'alert invisibile
+         -->
+        <div id="alert-market" class="alert alert-dismissible fade mt-2" role="alert">
+            <strong id="strong-alert"></strong><span id="text-alert" class="ml-2"></span>
+            <button id="dismiss-alert-fav" type="button"
+                onclick="document.getElementById('alert-market').classList.remove('show')" class="close">
+                <span aria-hidden="true">&times;</span>
+            </button>
+        </div>
+
+        <div style="margin-top: 32px;">
+            <canvas id="chart"></canvas>
+        </div>
+    </div>
+    <script>
+        //Prendo il csrftoken di Django che sarà utilizzato in una richiesta nel file 'market.js'
+        var csrftoken = '{{ csrf_token }}';
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/jquery@3.5.1/dist/jquery.slim.min.js"
+        integrity="sha384-DfXdz2htPH0lsSSs5nCTpuj/zy4C+OGpamoFVy38MVBnE+IbbVYUew+OrCXaRkfj"
+        crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/js/bootstrap.bundle.min.js"
+        integrity="sha384-Fy6S3B9q64WdZWQUiU+q4/2Lc9npb8tCaSX9FK7E8HnRr0Jz8D6OP9dO5Vg3Q9ct"
+        crossorigin="anonymous"></script>
+    <script src="{% static 'market.js' %}"></script>
+</body>
+
+</html>
